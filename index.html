@@ -228,6 +228,54 @@
       flex-wrap: wrap;
     }
 
+    .dice-panel {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .dice-controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .select {
+      min-width: 110px;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 800;
+      outline: none;
+    }
+
+    .dice-result {
+      min-width: 150px;
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: var(--accent-2);
+    }
+
+    .dice-result.rolling {
+      animation: dicePulse 0.18s ease-in-out infinite alternate;
+    }
+
+    @keyframes dicePulse {
+      from {
+        transform: translateY(0) scale(1);
+        opacity: 0.72;
+      }
+      to {
+        transform: translateY(-2px) scale(1.04);
+        opacity: 1;
+      }
+    }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -335,6 +383,7 @@
       .controls { grid-template-columns: repeat(2, 1fr); }
       .toolbar { align-items: stretch; }
       .toolbar .right, .toolbar .right .btn { width: 100%; }
+      .dice-panel, .dice-controls, .dice-controls .btn, .dice-controls .select { width: 100%; }
     }
   </style>
 </head>
@@ -406,6 +455,24 @@
         </div>
       </section>
 
+      <section class="panel dice-panel">
+        <div>
+          <strong>Dice Roller</strong>
+          <div class="small">Choose a die and roll.</div>
+        </div>
+        <div class="dice-controls">
+          <select class="select" id="diceSelect" aria-label="Dice type">
+            <option value="3">D3</option>
+            <option value="4">D4</option>
+            <option value="6" selected>D6</option>
+            <option value="10">D10</option>
+            <option value="20">D20</option>
+          </select>
+          <button class="btn btn-primary" id="rollDiceBtn" type="button">Roll Dice</button>
+        </div>
+        <div class="dice-result" id="diceResult">No roll yet</div>
+      </section>
+
       <section id="characterList" class="grid"></section>
     </section>
   </main>
@@ -435,9 +502,14 @@
     const sessionCode = document.getElementById('sessionCode');
     const resetAllBtn = document.getElementById('resetAllBtn');
     const clearAllBtn = document.getElementById('clearAllBtn');
+    const diceSelect = document.getElementById('diceSelect');
+    const rollDiceBtn = document.getElementById('rollDiceBtn');
+    const diceResult = document.getElementById('diceResult');
+    const rollSound = new Audio('roll.WAV');
 
     let socket;
     let reconnectTimer;
+    let diceRollTimer;
     const requestedMode = new URLSearchParams(window.location.search).get('mode');
     let mode = requestedMode === 'host' || requestedMode === 'player' ? requestedMode : '';
     let myCharacterId = localStorage.getItem(PLAYER_ID_KEY) || '';
@@ -488,6 +560,11 @@
     });
 
     resetAllBtn.addEventListener('click', () => send('reset-all'));
+
+    rollDiceBtn.addEventListener('click', () => {
+      const sides = Number(diceSelect.value);
+      animateDiceRoll(sides);
+    });
 
     clearAllBtn.addEventListener('click', () => {
       if (!game.characters.length) return;
@@ -656,6 +733,39 @@
 
     function getMyCharacter() {
       return game.characters.find((character) => character.id === myCharacterId);
+    }
+
+    function rollDie(sides) {
+      const values = new Uint32Array(1);
+      crypto.getRandomValues(values);
+      return (values[0] % sides) + 1;
+    }
+
+    function animateDiceRoll(sides) {
+      clearInterval(diceRollTimer);
+      rollDiceBtn.disabled = true;
+      diceSelect.disabled = true;
+      diceResult.classList.add('rolling');
+      playRollSound();
+
+      const finalResult = rollDie(sides);
+      const startedAt = Date.now();
+      diceRollTimer = setInterval(() => {
+        diceResult.textContent = `D${sides}: ${rollDie(sides)}`;
+
+        if (Date.now() - startedAt >= 850) {
+          clearInterval(diceRollTimer);
+          diceResult.textContent = `D${sides}: ${finalResult}`;
+          diceResult.classList.remove('rolling');
+          rollDiceBtn.disabled = false;
+          diceSelect.disabled = false;
+        }
+      }, 70);
+    }
+
+    function playRollSound() {
+      rollSound.currentTime = 0;
+      rollSound.play().catch(() => {});
     }
 
     function escapeHtml(value) {
