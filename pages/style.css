@@ -290,6 +290,10 @@ h1 {
     margin-bottom: 14px;
 }
 
+.card-actions {
+    margin-top: 12px;
+}
+
 .character-name {
     margin: 0;
     font-size: 1.2rem;

@@ -210,7 +210,7 @@ function render() {
         ${renderStat(character, 'mana', character.mana, manaPercent, canControl)}
 
         ${canControl ? `
-            <div style="margin-top:12px;">
+            <div class="card-actions">
             <button class="btn btn-secondary" data-action="reset" data-id="${character.id}" type="button">Reset to 10/10</button>
             </div>
         ` : ''}
