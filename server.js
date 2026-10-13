@@ -1,17 +1,26 @@
-const crypto = require('crypto');
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
+const path = require('path');
+const {
+  DEFAULT_POINTS,
+  sessions,
+  createSession,
+  createCharacter,
+  publicSession,
+  getSocketSession,
+  findCharacter,
+  cleanName,
+  cleanCode,
+} = require('./sessions');
 
 const PORT = process.env.PORT || 3000;
-const DEFAULT_POINTS = 10;
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-const sessions = new Map();
 
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'pages')));
 
 app.get('/api/session/:code', (req, res) => {
   const session = sessions.get(cleanCode(req.params.code));
@@ -133,8 +142,8 @@ function handleMessage(socket, payload) {
     const amount = Number(data.amount);
     if (!character || !Number.isFinite(amount)) return;
 
-      const nextValue = Math.max(0, character[stat] + amount);
-    character[stat] = stat === 'health' ? Math.min(DEFAULT_POINTS, nextValue) : nextValue;;
+    const nextValue = Math.max(0, character[stat] + amount);
+    character[stat] = stat === 'health' ? Math.min(DEFAULT_POINTS, nextValue) : nextValue;
     broadcastState(session.code);
     return;
   }
@@ -168,53 +177,6 @@ function handleMessage(socket, payload) {
     session.characters = [];
     broadcastState(session.code);
   }
-}
-
-function createSession() {
-  let code = makeCode();
-  while (sessions.has(code)) {
-    code = makeCode();
-  }
-
-  const session = { code, characters: [] };
-  sessions.set(code, session);
-  return session;
-}
-
-function publicSession(session) {
-  return {
-    code: session.code,
-    characters: session.characters,
-  };
-}
-
-function createCharacter(name) {
-  return {
-    id: crypto.randomUUID(),
-    name,
-    health: DEFAULT_POINTS,
-    mana: DEFAULT_POINTS,
-  };
-}
-
-function getSocketSession(socket) {
-  return sessions.get(socket.sessionCode);
-}
-
-function findCharacter(session, characterId) {
-  return session.characters.find((character) => character.id === characterId);
-}
-
-function cleanName(value) {
-  return String(value || '').trim().slice(0, 40);
-}
-
-function cleanCode(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function makeCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
 function send(socket, type, data) {
