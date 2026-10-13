@@ -1,18 +1,18 @@
-const crypto = require('crypto');
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+const {DEFAULT_POINTS, sessions, createSession, createCharacter, 
+  publicSession, getSocketSession, findCharacter, cleanName, cleanCode} = require('./sessions');
 
 const PORT = process.env.PORT || 3000;
-const DEFAULT_POINTS = 10;
+
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-const sessions = new Map();
 
-app.use(express.static(path.join(__dirname, 'pages')));``
+app.use(express.static(path.join(__dirname, 'pages')));
 
 app.get('/api/session/:code', (req, res) => {
   const session = sessions.get(cleanCode(req.params.code));
@@ -71,152 +71,106 @@ function handleMessage(socket, payload) {
   }
 
   if (type === 'host-session') {
-    const session = sessions.get(cleanCode(data.code));
-    if (!session) {
-      send(socket, 'error', { message: 'That host session no longer exists.' });
+      const session = sessions.get(cleanCode(data.code));
+      if (!session) {
+          send(socket, 'error', { message: 'That host session no longer exists.' });
+          return;
+      }
+      socket.sessionCode = session.code;
+      send(socket, 'state', publicSession(session));
       return;
     }
-
-    socket.sessionCode = session.code;
-    send(socket, 'state', publicSession(session));
-    return;
-  }
 
   if (type === 'join') {
-    const session = sessions.get(cleanCode(data.code));
-    const name = cleanName(data.name);
+      const session = sessions.get(cleanCode(data.code));
+      const name = cleanName(data.name);
 
+      if (!session) {
+          send(socket, 'error', { message: 'That play code does not match an active session.' });
+          return;
+      }
+
+      if (!name) {
+          send(socket, 'error', { message: 'Character name is required.' });
+          return;
+      }
+
+      socket.sessionCode = session.code;
+      let character = session.characters.find(
+          (entry) => entry.name.toLowerCase() === name.toLowerCase()
+      );
+
+  if (character) {
+          send(socket, 'error', { message: 'That character name is already taken in this game.' });
+          return;
+      }
+
+      character = createCharacter(name);
+      session.characters.unshift(character);
+
+      send(socket, 'joined', { characterId: character.id, code: session.code });
+      broadcastState(session.code);
+      return;
+  }
+
+    const session = getSocketSession(socket);
     if (!session) {
-      send(socket, 'error', { message: 'That play code does not match an active session.' });
+      send(socket, 'error', { message: 'Choose or join a game session first.' });
       return;
     }
 
-    if (!name) {
-      send(socket, 'error', { message: 'Character name is required.' });
+    if (type === 'add-character') {
+      const name = cleanName(data.name);
+      if (!name) return;
+      session.characters.unshift(createCharacter(name));
+      broadcastState(session.code);
       return;
     }
 
-    socket.sessionCode = session.code;
-    let character = session.characters.find(
-      (entry) => entry.name.toLowerCase() === name.toLowerCase()
-    );
+    if (type === 'change-stat') {
+      const character = findCharacter(session, data.characterId);
+      const stat = data.stat === 'mana' ? 'mana' : 'health';
+      const amount = Number(data.amount);
+      if (!character || !Number.isFinite(amount)) return;
 
-    if (character) {
-      send(socket, 'error', { message: 'That character name is already taken in this game.' });
+        const nextValue = Math.max(0, character[stat] + amount);
+      character[stat] = stat === 'health' ? Math.min(DEFAULT_POINTS, nextValue) : nextValue;;
+      broadcastState(session.code);
       return;
     }
 
-    character = createCharacter(name);
-    session.characters.unshift(character);
+    if (type === 'reset-character') {
+      const character = findCharacter(session, data.characterId);
+      if (!character) return;
+      character.health = DEFAULT_POINTS;
+      character.mana = DEFAULT_POINTS;
+      broadcastState(session.code);
+      return;
+    }
 
-    send(socket, 'joined', { characterId: character.id, code: session.code });
-    broadcastState(session.code);
-    return;
+    if (type === 'delete-character') {
+      session.characters = session.characters.filter((character) => character.id !== data.characterId);
+      broadcastState(session.code);
+      return;
+    }
+
+    if (type === 'reset-all') {
+      session.characters = session.characters.map((character) => ({
+        ...character,
+        health: DEFAULT_POINTS,
+        mana: DEFAULT_POINTS,
+      }));
+      broadcastState(session.code);
+      return;
+    }
+
+    if (type === 'clear-all') {
+      session.characters = [];
+      broadcastState(session.code);
+      }
   }
 
-  const session = getSocketSession(socket);
-  if (!session) {
-    send(socket, 'error', { message: 'Choose or join a game session first.' });
-    return;
-  }
 
-  if (type === 'add-character') {
-    const name = cleanName(data.name);
-    if (!name) return;
-    session.characters.unshift(createCharacter(name));
-    broadcastState(session.code);
-    return;
-  }
-
-  if (type === 'change-stat') {
-    const character = findCharacter(session, data.characterId);
-    const stat = data.stat === 'mana' ? 'mana' : 'health';
-    const amount = Number(data.amount);
-    if (!character || !Number.isFinite(amount)) return;
-
-      const nextValue = Math.max(0, character[stat] + amount);
-    character[stat] = stat === 'health' ? Math.min(DEFAULT_POINTS, nextValue) : nextValue;;
-    broadcastState(session.code);
-    return;
-  }
-
-  if (type === 'reset-character') {
-    const character = findCharacter(session, data.characterId);
-    if (!character) return;
-    character.health = DEFAULT_POINTS;
-    character.mana = DEFAULT_POINTS;
-    broadcastState(session.code);
-    return;
-  }
-
-  if (type === 'delete-character') {
-    session.characters = session.characters.filter((character) => character.id !== data.characterId);
-    broadcastState(session.code);
-    return;
-  }
-
-  if (type === 'reset-all') {
-    session.characters = session.characters.map((character) => ({
-      ...character,
-      health: DEFAULT_POINTS,
-      mana: DEFAULT_POINTS,
-    }));
-    broadcastState(session.code);
-    return;
-  }
-
-  if (type === 'clear-all') {
-    session.characters = [];
-    broadcastState(session.code);
-  }
-}
-
-function createSession() {
-  let code = makeCode();
-  while (sessions.has(code)) {
-    code = makeCode();
-  }
-
-  const session = { code, characters: [] };
-  sessions.set(code, session);
-  return session;
-}
-
-function publicSession(session) {
-  return {
-    code: session.code,
-    characters: session.characters,
-  };
-}
-
-function createCharacter(name) {
-  return {
-    id: crypto.randomUUID(),
-    name,
-    health: DEFAULT_POINTS,
-    mana: DEFAULT_POINTS,
-  };
-}
-
-function getSocketSession(socket) {
-  return sessions.get(socket.sessionCode);
-}
-
-function findCharacter(session, characterId) {
-  return session.characters.find((character) => character.id === characterId);
-}
-
-function cleanName(value) {
-  return String(value || '').trim().slice(0, 40);
-}
-
-function cleanCode(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function makeCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
-}
 
 function send(socket, type, data) {
   if (socket.readyState === WebSocket.OPEN) {
