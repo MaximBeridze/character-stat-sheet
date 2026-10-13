@@ -2,11 +2,19 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
-const {DEFAULT_POINTS, sessions, createSession, createCharacter, 
-  publicSession, getSocketSession, findCharacter, cleanName, cleanCode} = require('./sessions');
+const {
+  DEFAULT_POINTS,
+  sessions,
+  createSession,
+  createCharacter,
+  publicSession,
+  getSocketSession,
+  findCharacter,
+  cleanName,
+  cleanCode,
+} = require('./sessions');
 
 const PORT = process.env.PORT || 3000;
-
 
 const app = express();
 const server = http.createServer(app);
@@ -71,106 +79,105 @@ function handleMessage(socket, payload) {
   }
 
   if (type === 'host-session') {
-      const session = sessions.get(cleanCode(data.code));
-      if (!session) {
-          send(socket, 'error', { message: 'That host session no longer exists.' });
-          return;
-      }
-      socket.sessionCode = session.code;
-      send(socket, 'state', publicSession(session));
+    const session = sessions.get(cleanCode(data.code));
+    if (!session) {
+      send(socket, 'error', { message: 'That host session no longer exists.' });
       return;
     }
+
+    socket.sessionCode = session.code;
+    send(socket, 'state', publicSession(session));
+    return;
+  }
 
   if (type === 'join') {
-      const session = sessions.get(cleanCode(data.code));
-      const name = cleanName(data.name);
+    const session = sessions.get(cleanCode(data.code));
+    const name = cleanName(data.name);
 
-      if (!session) {
-          send(socket, 'error', { message: 'That play code does not match an active session.' });
-          return;
-      }
-
-      if (!name) {
-          send(socket, 'error', { message: 'Character name is required.' });
-          return;
-      }
-
-      socket.sessionCode = session.code;
-      let character = session.characters.find(
-          (entry) => entry.name.toLowerCase() === name.toLowerCase()
-      );
-
-  if (character) {
-          send(socket, 'error', { message: 'That character name is already taken in this game.' });
-          return;
-      }
-
-      character = createCharacter(name);
-      session.characters.unshift(character);
-
-      send(socket, 'joined', { characterId: character.id, code: session.code });
-      broadcastState(session.code);
-      return;
-  }
-
-    const session = getSocketSession(socket);
     if (!session) {
-      send(socket, 'error', { message: 'Choose or join a game session first.' });
+      send(socket, 'error', { message: 'That play code does not match an active session.' });
       return;
     }
 
-    if (type === 'add-character') {
-      const name = cleanName(data.name);
-      if (!name) return;
-      session.characters.unshift(createCharacter(name));
-      broadcastState(session.code);
+    if (!name) {
+      send(socket, 'error', { message: 'Character name is required.' });
       return;
     }
 
-    if (type === 'change-stat') {
-      const character = findCharacter(session, data.characterId);
-      const stat = data.stat === 'mana' ? 'mana' : 'health';
-      const amount = Number(data.amount);
-      if (!character || !Number.isFinite(amount)) return;
+    socket.sessionCode = session.code;
+    let character = session.characters.find(
+      (entry) => entry.name.toLowerCase() === name.toLowerCase()
+    );
 
-        const nextValue = Math.max(0, character[stat] + amount);
-      character[stat] = stat === 'health' ? Math.min(DEFAULT_POINTS, nextValue) : nextValue;;
-      broadcastState(session.code);
+    if (character) {
+      send(socket, 'error', { message: 'That character name is already taken in this game.' });
       return;
     }
 
-    if (type === 'reset-character') {
-      const character = findCharacter(session, data.characterId);
-      if (!character) return;
-      character.health = DEFAULT_POINTS;
-      character.mana = DEFAULT_POINTS;
-      broadcastState(session.code);
-      return;
-    }
+    character = createCharacter(name);
+    session.characters.unshift(character);
 
-    if (type === 'delete-character') {
-      session.characters = session.characters.filter((character) => character.id !== data.characterId);
-      broadcastState(session.code);
-      return;
-    }
-
-    if (type === 'reset-all') {
-      session.characters = session.characters.map((character) => ({
-        ...character,
-        health: DEFAULT_POINTS,
-        mana: DEFAULT_POINTS,
-      }));
-      broadcastState(session.code);
-      return;
-    }
-
-    if (type === 'clear-all') {
-      session.characters = [];
-      broadcastState(session.code);
-      }
+    send(socket, 'joined', { characterId: character.id, code: session.code });
+    broadcastState(session.code);
+    return;
   }
 
+  const session = getSocketSession(socket);
+  if (!session) {
+    send(socket, 'error', { message: 'Choose or join a game session first.' });
+    return;
+  }
 
+  if (type === 'add-character') {
+    const name = cleanName(data.name);
+    if (!name) return;
+    session.characters.unshift(createCharacter(name));
+    broadcastState(session.code);
+    return;
+  }
+
+  if (type === 'change-stat') {
+    const character = findCharacter(session, data.characterId);
+    const stat = data.stat === 'mana' ? 'mana' : 'health';
+    const amount = Number(data.amount);
+    if (!character || !Number.isFinite(amount)) return;
+
+    const nextValue = Math.max(0, character[stat] + amount);
+    character[stat] = stat === 'health' ? Math.min(DEFAULT_POINTS, nextValue) : nextValue;
+    broadcastState(session.code);
+    return;
+  }
+
+  if (type === 'reset-character') {
+    const character = findCharacter(session, data.characterId);
+    if (!character) return;
+    character.health = DEFAULT_POINTS;
+    character.mana = DEFAULT_POINTS;
+    broadcastState(session.code);
+    return;
+  }
+
+  if (type === 'delete-character') {
+    session.characters = session.characters.filter((character) => character.id !== data.characterId);
+    broadcastState(session.code);
+    return;
+  }
+
+  if (type === 'reset-all') {
+    session.characters = session.characters.map((character) => ({
+      ...character,
+      health: DEFAULT_POINTS,
+      mana: DEFAULT_POINTS,
+    }));
+    broadcastState(session.code);
+    return;
+  }
+
+  if (type === 'clear-all') {
+    session.characters = [];
+    broadcastState(session.code);
+  }
+}
 
 function send(socket, type, data) {
   if (socket.readyState === WebSocket.OPEN) {

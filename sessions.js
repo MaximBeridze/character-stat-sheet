@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const DEFAULT_POINTS = 10;
 const sessions = new Map();
 
-
 function createSession() {
   let code = makeCode();
   while (sessions.has(code)) {
