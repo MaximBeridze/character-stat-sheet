@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
+const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const DEFAULT_POINTS = 10;
@@ -11,7 +12,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const sessions = new Map();
 
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'pages')));``
 
 app.get('/api/session/:code', (req, res) => {
   const session = sessions.get(cleanCode(req.params.code));
