@@ -8,9 +8,14 @@ function createSession() {
     code = makeCode();
   }
 
-  const session = { code, characters: [] };
-  sessions.set(code, session);
-  return session;
+    const session = {
+    code,
+    hostToken: crypto.randomBytes(32).toString('hex'),
+    characters: [],
+    };
+
+    sessions.set(code, session);
+    return session;
 }
 
 function makeCode() {

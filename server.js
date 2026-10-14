@@ -35,6 +35,8 @@ app.get('/api/session/:code', (req, res) => {
 wss.on('connection', (socket) => {
   socket.isAlive = true;
   socket.sessionCode = '';
+  socket.role = '';
+  socket.characterId = '';
 
   socket.on('pong', () => {
     socket.isAlive = true;
@@ -73,19 +75,24 @@ function handleMessage(socket, payload) {
   if (type === 'create-session') {
     const session = createSession();
     socket.sessionCode = session.code;
-    send(socket, 'session-created', { code: session.code });
+    socket.role = 'host'
+    send(socket, 'session-created', {
+      code: session.code,
+      hostToken: session.hostToken,
+    });
     send(socket, 'state', publicSession(session));
     return;
   }
 
   if (type === 'host-session') {
     const session = sessions.get(cleanCode(data.code));
-    if (!session) {
-      send(socket, 'error', { message: 'That host session no longer exists.' });
+    if (!session || data.hostToken !== session.hostToken) {
+      send(socket, 'host-session-rejected', {});
       return;
     }
 
     socket.sessionCode = session.code;
+    socket.role = 'host'
     send(socket, 'state', publicSession(session));
     return;
   }
@@ -104,7 +111,6 @@ function handleMessage(socket, payload) {
       return;
     }
 
-    socket.sessionCode = session.code;
     let character = session.characters.find(
       (entry) => entry.name.toLowerCase() === name.toLowerCase()
     );
@@ -116,6 +122,9 @@ function handleMessage(socket, payload) {
 
     character = createCharacter(name);
     session.characters.unshift(character);
+    socket.sessionCode = session.code;
+    socket.role = 'player';
+    socket.characterId = character.id;
 
     send(socket, 'joined', { characterId: character.id, code: session.code });
     broadcastState(session.code);
@@ -125,6 +134,19 @@ function handleMessage(socket, payload) {
   const session = getSocketSession(socket);
   if (!session) {
     send(socket, 'error', { message: 'Choose or join a game session first.' });
+    return;
+  }
+
+  const isHost = socket.role === 'host';
+  const ownsCharacter =
+    socket.role === 'player' && socket.characterId === data.characterId;
+  const hostOnly = ['add-character', 'reset-all', 'clear-all'].includes(type);
+  const characterAction =
+    ['change-stat', 'reset-character', 'delete-character'].includes(type);
+
+  if ((hostOnly && !isHost) ||
+      (characterAction && !isHost && !ownsCharacter)) {
+    send(socket, 'error', { message: 'You cannot perform that action.' });
     return;
   }
 

@@ -26,6 +26,8 @@ const clearAllBtn = document.getElementById('clearAllBtn');
 
 let socket;
 let reconnectTimer;
+let hostCode = ''
+let hostToken = ''
 const requestedMode = new URLSearchParams(window.location.search).get('mode');
 let mode = requestedMode === 'host' || requestedMode === 'player' ? requestedMode : '';
 let myCharacterId = localStorage.getItem(PLAYER_ID_KEY) || '';
@@ -109,13 +111,15 @@ function connect() {
     socket.addEventListener('open', () => {
     status.textContent = 'Live session connected';
     if (mode === 'host') {
-        send(game.code ? 'host-session' : 'create-session', { code: game.code });
+        openHostSession()
     }
     });
 
     socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data);
     if (message.type === 'session-created') {
+        hostCode = message.data.code;
+        hostToken = message.data.hostToken;
         game = { code: message.data.code, characters: [] };
         status.textContent = 'Host session ready. Share the play code with your players.';
         render();
@@ -135,6 +139,12 @@ function connect() {
     if (message.type === 'error') {
         status.textContent = message.data.message;
     }
+
+    if (message.type === 'host-session-rejected') {
+    hostCode = '';
+    hostToken = '';
+    openHostSession();
+    }
     });
 
     socket.addEventListener('close', () => {
@@ -142,6 +152,17 @@ function connect() {
     reconnectTimer = setTimeout(connect, 1000);
     });
 }
+
+function openHostSession() {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+    if (hostCode && hostToken) {
+        send('host-session', { code: hostCode, hostToken });
+    } else {
+        send('create-session');
+    }
+}
+
 
 function send(type, data = {}) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -163,7 +184,7 @@ function setMode(nextMode) {
     updatePlayerJoinState();
     if (mode === 'player' && !getMyCharacter()) codeInput.focus();
     if (mode === 'host') {
-    if (!game.code) send('create-session');
+    openHostSession()
     nameInput.focus();
     }
     render();
